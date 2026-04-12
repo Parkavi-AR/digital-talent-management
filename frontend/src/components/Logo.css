@@ -1,0 +1,46 @@
+.logo-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.logo-image {
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+/* Auth Variant (Login, Admin Login, Admin Register) */
+.logo-container.auth {
+  margin: 0 auto 32px auto;
+  width: 100%;
+  max-width: 180px;
+  background: white; /* Ensures visibility on dark auth backgrounds */
+  padding: 12px;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+/* Sidebar Variant (Admin Dashboard, User Dashboard) */
+.logo-container.sidebar {
+  padding: 12px;
+  margin: 20px auto;
+  width: calc(100% - 32px);
+  max-width: 140px;
+  background: white; /* Contrast for the dark logo on dark sidebar */
+  border-radius: 10px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* Navbar Variant */
+.logo-container.navbar {
+  height: 32px;
+  background: white;
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+
+.logo-container.navbar .logo-image {
+  height: 100%;
+  width: auto;
+}
