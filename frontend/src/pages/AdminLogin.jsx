@@ -16,8 +16,16 @@ const AdminLogin = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    console.log('Attempting admin login for:', form.email.trim());
     try {
-      const { data } = await API.post('/auth/login', form);
+      const loginPayload = {
+        email: form.email.trim(),
+        password: form.password
+      };
+
+      const { data } = await API.post('/auth/login', loginPayload);
+      console.log('Admin Login successful:', data.role);
+
       if (data.role !== 'admin') {
         setError('Access denied. This portal is for admins only.');
         return;
@@ -25,6 +33,11 @@ const AdminLogin = () => {
       login(data);
       navigate('/admin/dashboard');
     } catch (err) {
+      console.error('Admin Login Error Details:', {
+        status: err.response?.status,
+        message: err.response?.data?.message,
+        data: err.response?.data
+      });
       setError(err.response?.data?.message || 'Login failed');
     }
   };

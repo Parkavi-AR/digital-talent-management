@@ -16,8 +16,16 @@ const Login = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    console.log('Attempting login for:', form.email.trim());
     try {
-      const { data } = await API.post('/auth/login', form);
+      const loginPayload = {
+        email: form.email.trim(),
+        password: form.password
+      };
+      
+      const { data } = await API.post('/auth/login', loginPayload);
+      console.log('Login successful:', data.role);
+      
       if (data.role !== 'user') {
         setError('Access denied. This portal is for users only.');
         return;
@@ -25,6 +33,11 @@ const Login = () => {
       login(data);
       navigate('/dashboard');
     } catch (err) {
+      console.error('Login Error Details:', {
+        status: err.response?.status,
+        message: err.response?.data?.message,
+        data: err.response?.data
+      });
       setError(err.response?.data?.message || 'Login failed');
     }
   };
