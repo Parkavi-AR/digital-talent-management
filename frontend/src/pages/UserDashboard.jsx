@@ -17,14 +17,6 @@ const UserDashboard = () => {
   const [isNotifEnabled, setIsNotifEnabled] = useState(Notification.permission === 'granted');
   const [dismissedReminder] = useState(false);
 
-  useEffect(() => {
-    if (user && user.role === 'user') {
-      fetchTasks();
-    } else if (!user) {
-      navigate('/login');
-    }
-  }, [user, navigate, fetchTasks]);
-
   const fetchTasks = useCallback(async () => {
     if (!user?._id) return;
     setLoading(true);
@@ -43,6 +35,14 @@ const UserDashboard = () => {
       setLoading(false);
     }
   }, [user?._id]);
+
+  useEffect(() => {
+    if (user && user.role === 'user') {
+      fetchTasks();
+    } else if (!user) {
+      navigate('/login');
+    }
+  }, [user, navigate, fetchTasks]);
 
   // Notification Permission Handler
   const requestNotifPermission = async () => {

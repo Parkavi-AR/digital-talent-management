@@ -31,7 +31,7 @@ const AdminRegister = () => {
         <Logo variant="auth" />
         <div className="admin-auth-header">
           <span className="admin-badge">🔧 Admin</span>
-          <p className="admin-auth-subtitle">First time setup only</p>
+          <p className="admin-auth-subtitle">Create a new administrator account</p>
         </div>
         {error && <p className="admin-auth-error">{error}</p>}
         <form onSubmit={handleSubmit}>
