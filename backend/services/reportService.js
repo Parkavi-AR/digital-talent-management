@@ -2,14 +2,14 @@ require('dotenv').config();
 const cron = require('node-cron');
 const fs = require('fs');
 const path = require('path');
-const pdf = require('html-pdf');
+const puppeteer = require('puppeteer');
 const Task = require('../models/Task');
 const User = require('../models/User');
 const Report = require('../models/Report');
 const { sendEmail } = require('./emailService');
 
 const REPORTS_DIR = path.join(__dirname, '../uploads/reports');
-const LOGO_PATH = path.join(__dirname, '../../frontend/src/assets/logo.png');
+const LOGO_PATH = path.join(__dirname, 'logo.png');
 
 const getLogoBase64 = () => {
   try {
@@ -50,35 +50,39 @@ const cleanupOldReports = async () => {
   }
 };
 
-const generatePDF = (htmlContent, fileName) => {
-  return new Promise((resolve, reject) => {
-    const timestamp = new Date().toLocaleString('en-IN');
+const generatePDF = async (htmlContent, fileName) => {
+  const timestamp = new Date().toLocaleString('en-IN');
+  try {
     ensureDirectoryExists();
     const filePath = path.join(REPORTS_DIR, fileName);
+    console.log(`[${timestamp}] 📄 Generating PDF with Puppeteer: ${fileName}`);
 
-    console.log(`[${timestamp}] 📄 Generating PDF with html-pdf engine: ${fileName}`);
-
-    const options = {
+    const browser = await puppeteer.launch({
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    });
+    
+    const page = await browser.newPage();
+    await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+    
+    await page.pdf({
+      path: filePath,
       format: 'A4',
-      border: {
+      printBackground: true, // extremely important for progress bars
+      margin: {
         top: '15mm',
         right: '15mm',
         bottom: '15mm',
         left: '15mm'
-      },
-      type: 'pdf',
-      renderDelay: 1000 // Give it a moment to render styles
-    };
-
-    pdf.create(htmlContent, options).toFile(filePath, (err, res) => {
-      if (err) {
-        console.error(`[${timestamp}] ❌ PDF Generation Error (${fileName}):`, err.message || err);
-        return resolve(null);
       }
-      console.log(`[${timestamp}] ✅ PDF successfully created at: ${res.filename}`);
-      resolve(res.filename);
     });
-  });
+
+    await browser.close();
+    console.log(`[${timestamp}] ✅ PDF successfully created at: ${filePath}`);
+    return filePath;
+  } catch (err) {
+    console.error(`[${timestamp}] ❌ PDF Generation Error (${fileName}):`, err.message || err);
+    return null;
+  }
 };
 
 const getAdminEmails = async () => {
