@@ -2,7 +2,7 @@ require('dotenv').config();
 const cron = require('node-cron');
 const fs = require('fs');
 const path = require('path');
-const puppeteer = require('puppeteer');
+const PDFDocument = require('pdfkit');
 const Task = require('../models/Task');
 const User = require('../models/User');
 const Report = require('../models/Report');
@@ -50,39 +50,70 @@ const cleanupOldReports = async () => {
   }
 };
 
-const generatePDF = async (htmlContent, fileName) => {
-  const timestamp = new Date().toLocaleString('en-IN');
-  try {
-    ensureDirectoryExists();
-    const filePath = path.join(REPORTS_DIR, fileName);
-    console.log(`[${timestamp}] 📄 Generating PDF with Puppeteer: ${fileName}`);
+const generatePDF = (title, tasks, fileName) => {
+  return new Promise((resolve, reject) => {
+    const timestamp = new Date().toLocaleString('en-IN');
+    try {
+      ensureDirectoryExists();
+      const filePath = path.join(REPORTS_DIR, fileName);
+      console.log(`[${timestamp}] 📄 Generating PDF with PDFKit: ${fileName}`);
 
-    const browser = await puppeteer.launch({
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-    });
-    
-    const page = await browser.newPage();
-    await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
-    
-    await page.pdf({
-      path: filePath,
-      format: 'A4',
-      printBackground: true, // extremely important for progress bars
-      margin: {
-        top: '15mm',
-        right: '15mm',
-        bottom: '15mm',
-        left: '15mm'
+      const doc = new PDFDocument({ margin: 50 });
+      const stream = fs.createWriteStream(filePath);
+      
+      doc.pipe(stream);
+
+      // Embedded logo if exists
+      if (fs.existsSync(LOGO_PATH)) {
+        try {
+          doc.image(LOGO_PATH, 50, 45, { width: 100 });
+        } catch (imgErr) {
+          console.warn('Could not embed logo in PDFKit:', imgErr.message);
+        }
       }
-    });
 
-    await browser.close();
-    console.log(`[${timestamp}] ✅ PDF successfully created at: ${filePath}`);
-    return filePath;
-  } catch (err) {
-    console.error(`[${timestamp}] ❌ PDF Generation Error (${fileName}):`, err.message || err);
-    return null;
-  }
+      // Title
+      doc.fontSize(20).text(title, { align: 'center' });
+      doc.moveDown();
+      
+      // Date and Time
+      doc.fontSize(10).fillColor('gray').text(`Generated Date: ${timestamp}`, { align: 'right' });
+      doc.moveDown(2);
+
+      // Tasks List
+      doc.fillColor('black');
+      if (tasks && tasks.length > 0) {
+        doc.fontSize(14).text('List of Tasks:', { underline: true });
+        doc.moveDown(0.5);
+        
+        doc.fontSize(11);
+        tasks.forEach((task, index) => {
+           const taskName = task.title || task.name || 'Untitled Task';
+           const status = task.status ? task.status.toUpperCase() : 'N/A';
+           const bgUser = task.assignedTo ? (task.assignedTo.name || 'Unknown User') : 'Unassigned';
+           
+           doc.text(`${index + 1}. [${status}] ${taskName} (Assigned To: ${bgUser})`);
+           doc.moveDown(0.5);
+        });
+      } else {
+        doc.fontSize(12).text('No tasks found for this reporting period.');
+      }
+
+      doc.end();
+
+      stream.on('finish', () => {
+        console.log(`[${timestamp}] ✅ PDF successfully created at: ${filePath}`);
+        resolve(filePath);
+      });
+      stream.on('error', (err) => {
+        console.error('PDF Stream Error:', err);
+        resolve(null);
+      });
+    } catch (err) {
+      console.error(`[${timestamp}] ❌ PDF Generation Error (${fileName}):`, err.message || err);
+      resolve(null);
+    }
+  });
 };
 
 const getAdminEmails = async () => {
@@ -205,8 +236,15 @@ const generateDailyReport = async () => {
       </div>
     `;
 
+    const dailyTasks = await Task.find({
+      $or: [
+        { createdAt: { $gte: startOfDay, $lte: endOfDay } },
+        { updatedAt: { $gte: startOfDay, $lte: endOfDay } }
+      ]
+    }).populate('assignedTo', 'name');
+
     const fileName = `daily-report-${new Date().toISOString().split('T')[0]}.pdf`;
-    const pdfPath = await generatePDF(htmlContent, fileName);
+    const pdfPath = await generatePDF('Daily Admin Report', dailyTasks, fileName);
 
     if (pdfPath) {
       console.log(`[${new Date().toLocaleString('en-IN')}] ✅ Daily PDF generated successfully at: ${pdfPath}`);
@@ -309,8 +347,15 @@ const generateWeeklyReport = async () => {
       </div>
     `;
 
+    const weeklyTasks = await Task.find({
+      $or: [
+        { createdAt: { $gte: startOfWeek, $lte: endOfWeek } },
+        { updatedAt: { $gte: startOfWeek, $lte: endOfWeek } }
+      ]
+    }).populate('assignedTo', 'name');
+
     const fileName = `weekly-report-${new Date().toISOString().split('T')[0]}.pdf`;
-    const pdfPath = await generatePDF(htmlContent, fileName);
+    const pdfPath = await generatePDF('Weekly Admin Report', weeklyTasks, fileName);
 
     if (pdfPath) {
       console.log(`[${new Date().toLocaleString('en-IN')}] ✅ Weekly PDF generated successfully at: ${pdfPath}`);
@@ -430,9 +475,16 @@ const generateMonthlyReport = async () => {
       </div>
     `;
 
+    const monthlyTasks = await Task.find({
+      $or: [
+        { createdAt: { $gte: startOfMonth, $lte: endOfMonth } },
+        { updatedAt: { $gte: startOfMonth, $lte: endOfMonth } }
+      ]
+    }).populate('assignedTo', 'name');
+
     const dateSuffix = new Date().toISOString().slice(0, 7); // YYYY-MM
     const fileName = `monthly-report-${dateSuffix}.pdf`;
-    const pdfPath = await generatePDF(htmlContent, fileName);
+    const pdfPath = await generatePDF('Monthly Admin Report', monthlyTasks, fileName);
 
     if (pdfPath) {
       console.log(`[${new Date().toLocaleString('en-IN')}] ✅ Monthly PDF generated successfully at: ${pdfPath}`);
