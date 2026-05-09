@@ -16,6 +16,16 @@ const UserDashboard = () => {
   const [file, setFile] = useState(null);
   const [isNotifEnabled, setIsNotifEnabled] = useState(Notification.permission === 'granted');
   const [dismissedReminder] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  const toggleMobileMenu = () => {
+    setIsMobileMenuOpen(!isMobileMenuOpen);
+  };
+
+  const handleTabClick = (tabName) => {
+    setActiveTab(tabName);
+    setIsMobileMenuOpen(false); // Auto-close sidebar on mobile
+  };
 
   const fetchTasks = useCallback(async () => {
     if (!user?._id) return;
@@ -235,8 +245,24 @@ const UserDashboard = () => {
 
   return (
     <div className="user-dashboard">
+      {/* Mobile Topbar */}
+      <div className="mobile-topbar">
+        <div className="mobile-topbar-brand">
+          <Logo variant="navbar" />
+        </div>
+        <button className="mobile-menu-btn" onClick={toggleMobileMenu}>
+          ☰
+        </button>
+      </div>
+
+      {/* Sidebar Backdrop for Mobile */}
+      <div 
+        className={`sidebar-backdrop ${isMobileMenuOpen ? 'open' : ''}`} 
+        onClick={() => setIsMobileMenuOpen(false)}
+      ></div>
+
       {/* Sidebar */}
-      <div className="user-sidebar">
+      <div className={`user-sidebar ${isMobileMenuOpen ? 'open' : ''}`}>
         <Logo variant="sidebar" />
         <div className="sidebar-profile">
           <div className="profile-avatar">
@@ -250,20 +276,20 @@ const UserDashboard = () => {
         <nav className="sidebar-nav">
           <button
             className={`sidebar-btn ${activeTab === 'overview' ? 'active' : ''}`}
-            onClick={() => setActiveTab('overview')}
+            onClick={() => handleTabClick('overview')}
           >
             📊 Overview
           </button>
           <button
             className={`sidebar-btn ${activeTab === 'tasks' ? 'active' : ''}`}
-            onClick={() => setActiveTab('tasks')}
+            onClick={() => handleTabClick('tasks')}
           >
             📋 My Tasks
           </button>
 
           <button
             className={`sidebar-btn ${activeTab === 'history' ? 'active' : ''}`}
-            onClick={() => setActiveTab('history')}
+            onClick={() => handleTabClick('history')}
           >
             📁 Submissions
           </button>
