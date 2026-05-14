@@ -296,7 +296,19 @@ const AdminDashboard = () => {
       document.body.appendChild(link);
       link.click();
       link.remove();
+      window.URL.revokeObjectURL(url);
     } catch (err) {
+      if (err.response && err.response.data && err.response.data instanceof Blob) {
+        try {
+          const text = await err.response.data.text();
+          const errorData = JSON.parse(text);
+          setError(errorData.message || 'Failed to download report');
+          console.error('Download error details:', errorData);
+          return;
+        } catch (e) {
+          // Fallback if parsing fails
+        }
+      }
       setError('Failed to download report');
       console.error(err);
     }

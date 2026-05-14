@@ -25,12 +25,24 @@ const downloadReport = async (req, res) => {
       return res.status(404).json({ message: 'Report not found' });
     }
 
-    if (!fs.existsSync(report.path)) {
+    // Resolve path dynamically to avoid issues with absolute paths across environments
+    const filePath = path.join(__dirname, '../uploads/reports', report.filename);
+
+    if (!fs.existsSync(filePath)) {
+      console.error(`[Download Error] Report file not found at path: ${filePath}`);
       return res.status(404).json({ message: 'Report file not found on server' });
     }
 
-    res.download(report.path, report.filename);
+    res.download(filePath, report.filename, (err) => {
+      if (err) {
+        console.error(`[Download Error] Failed to send file ${report.filename}:`, err);
+        if (!res.headersSent) {
+          res.status(500).json({ message: 'Error transmitting file' });
+        }
+      }
+    });
   } catch (error) {
+    console.error(`[Download Error] Exception during download:`, error);
     res.status(500).json({ message: 'Error downloading report', error: error.message });
   }
 };
