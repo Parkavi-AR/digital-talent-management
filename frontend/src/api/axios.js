@@ -1,8 +1,9 @@
 import axios from 'axios';
 
 const API = axios.create({
-  baseURL: 'https://talent-backend-bneb.onrender.com/api',
+  baseURL: import.meta.env.VITE_API_URL,
 });
+
 
 API.interceptors.request.use((config) => {
   const user = JSON.parse(localStorage.getItem('user'));

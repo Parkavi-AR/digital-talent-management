@@ -40,16 +40,28 @@ const registerAdmin = async (req, res) => {
 // @route POST /api/auth/login
 const loginUser = async (req, res) => {
   const { email, password } = req.body;
+  console.log(`\n--- LOGIN REQUEST START ---`);
+  console.log(`[Login] Attempting login for email: ${email}`);
+
   try {
     const user = await User.findOne({ email });
     if (!user) {
+      console.warn(`[Login] Failed: User not found.`);
       return res.status(400).json({ message: 'Invalid email or password' });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
+      console.warn(`[Login] Failed: Incorrect password.`);
       return res.status(400).json({ message: 'Invalid email or password' });
     }
+
+    console.log(`[Login] Success: User authenticated.`);
+    console.log(`[Login] DB User Role: '${user.role}'`);
+
+    const token = generateToken(user._id, user.role);
+    console.log(`[Login] JWT Generated with role payload: '${user.role}'`);
+    console.log(`--- LOGIN REQUEST END ---\n`);
 
     res.json({
       _id: user._id,
@@ -57,9 +69,10 @@ const loginUser = async (req, res) => {
       email: user.email,
       role: user.role,
       domain: user.domain,
-      token: generateToken(user._id, user.role),
+      token: token,
     });
   } catch (error) {
+    console.error(`[Login] Error:`, error.message);
     res.status(500).json({ message: error.message });
   }
 };

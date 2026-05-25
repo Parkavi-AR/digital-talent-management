@@ -101,8 +101,11 @@ const generatePDF = (title, tasks, fileName) => {
 
       doc.end();
 
-      stream.on('finish', () => {
+      stream.on('close', () => {
         console.log(`[${timestamp}] ✅ PDF successfully created at: ${filePath}`);
+        console.log("Generated filename:", fileName);
+        console.log("Full absolute path:", filePath);
+        console.log("fs.existsSync result:", fs.existsSync(filePath));
         resolve(filePath);
       });
       stream.on('error', (err) => {
@@ -549,9 +552,53 @@ const scheduleReports = () => {
   }, cronOptions);
 };
 
+const regenerateReportPdf = async (report) => {
+  const targetDate = new Date(report.createdAt);
+  let start, end;
+  let title = '';
+  
+  if (report.type === 'daily') {
+    start = new Date(targetDate);
+    start.setHours(0, 0, 0, 0);
+    end = new Date(targetDate);
+    end.setHours(23, 59, 59, 999);
+    title = 'Daily Admin Report';
+  } else if (report.type === 'weekly') {
+    start = new Date(targetDate);
+    start.setDate(start.getDate() - start.getDay()); // Sunday
+    start.setHours(0, 0, 0, 0);
+    end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    end.setHours(23, 59, 59, 999);
+    title = 'Weekly Admin Report';
+  } else if (report.type === 'monthly') {
+    start = new Date(targetDate);
+    start.setDate(1);
+    start.setHours(0, 0, 0, 0);
+    end = new Date(start);
+    end.setMonth(end.getMonth() + 1);
+    end.setDate(0);
+    end.setHours(23, 59, 59, 999);
+    title = 'Monthly Admin Report';
+  }
+
+  const tasks = await Task.find({
+    $or: [
+      { createdAt: { $gte: start, $lte: end } },
+      { updatedAt: { $gte: start, $lte: end } }
+    ]
+  }).populate('assignedTo', 'name');
+
+  const safeFilename = path.basename(report.filename || report.path);
+  const pdfPath = await generatePDF(title, tasks, safeFilename);
+  return pdfPath;
+};
+
 module.exports = {
   scheduleReports,
   generateDailyReport,
   generateWeeklyReport,
-  generateMonthlyReport
+  generateMonthlyReport,
+  regenerateReportPdf,
+  ensureDirectoryExists
 };
