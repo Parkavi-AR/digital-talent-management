@@ -50,62 +50,198 @@ const cleanupOldReports = async () => {
   }
 };
 
-const generatePDF = (title, tasks, fileName) => {
+const generatePDF = (title, tasks, fileName, metadata = {}) => {
   return new Promise((resolve, reject) => {
     const timestamp = new Date().toLocaleString('en-IN');
     try {
       ensureDirectoryExists();
       const filePath = path.join(REPORTS_DIR, fileName);
-      console.log(`[${timestamp}] 📄 Generating PDF with PDFKit: ${fileName}`);
+      console.log(`[${timestamp}] 📄 Generating Custom Corporate PDF: ${fileName}`);
 
-      const doc = new PDFDocument({ margin: 50 });
+      const doc = new PDFDocument({ margin: 40, size: 'A4', bufferPages: true });
       const stream = fs.createWriteStream(filePath);
       
       doc.pipe(stream);
 
-      // Embedded logo if exists
+      // Determine Theme Color
+      let themeColor = '#0056b3'; // Default blue
+      if (metadata.reportType === 'weekly') themeColor = '#17a2b8';
+      if (metadata.reportType === 'monthly') themeColor = '#6f42c1';
+
+      // --- HEADER ---
+      doc.rect(0, 0, doc.page.width, 10).fill(themeColor);
+      
+      let currentY = 40;
       if (fs.existsSync(LOGO_PATH)) {
         try {
-          doc.image(LOGO_PATH, 50, 45, { width: 100 });
+          doc.image(LOGO_PATH, 40, currentY, { height: 40 });
         } catch (imgErr) {
           console.warn('Could not embed logo in PDFKit:', imgErr.message);
+          doc.font('Helvetica-Bold').fontSize(20).fillColor(themeColor).text('RYNIXSOFT', 40, currentY);
         }
+      } else {
+        doc.font('Helvetica-Bold').fontSize(20).fillColor(themeColor).text('RYNIXSOFT', 40, currentY);
+      }
+      
+      doc.font('Helvetica-Bold').fontSize(16).fillColor('#333333')
+         .text('Digital Talent Management', 40, currentY, { align: 'right' });
+      doc.font('Helvetica').fontSize(10).fillColor('#777777')
+         .text(title, { align: 'right' })
+         .moveDown(0.2)
+         .text(`Generated: ${timestamp}`, { align: 'right' });
+
+      currentY += 60;
+
+      // --- SUMMARY CARDS ---
+      if (metadata.stats) {
+        doc.font('Helvetica-Bold').fontSize(12).fillColor('#333333').text('REPORT SUMMARY', 40, currentY);
+        currentY += 15;
+
+        const cardWidth = (doc.page.width - 80 - 30) / 4; 
+        const cardHeight = 50;
+        let startX = 40;
+
+        const drawCard = (x, y, label, value, valColor) => {
+          doc.roundedRect(x, y, cardWidth, cardHeight, 5).lineWidth(1).strokeColor('#e0e0e0').stroke();
+          doc.font('Helvetica').fontSize(9).fillColor('#777777').text(label, x + 5, y + 10, { width: cardWidth - 10, align: 'center' });
+          doc.font('Helvetica-Bold').fontSize(16).fillColor(valColor).text(value.toString(), x + 5, y + 25, { width: cardWidth - 10, align: 'center' });
+        };
+
+        drawCard(startX, currentY, 'Total Tasks', metadata.stats.total || 0, '#333333');
+        startX += cardWidth + 10;
+        drawCard(startX, currentY, 'Completed', metadata.stats.completed || 0, '#28a745');
+        startX += cardWidth + 10;
+        drawCard(startX, currentY, 'Pending', metadata.stats.pending || 0, '#ffc107');
+        startX += cardWidth + 10;
+        drawCard(startX, currentY, 'Overdue', metadata.stats.overdue || 0, '#dc3545');
+
+        currentY += cardHeight + 20;
       }
 
-      // Title
-      doc.fontSize(20).text(title, { align: 'center' });
-      doc.moveDown();
+      // --- ANALYTICS ---
+      if (metadata.analytics) {
+         doc.font('Helvetica-Bold').fontSize(12).fillColor('#333333').text('PERFORMANCE INSIGHTS', 40, currentY);
+         currentY += 15;
+         
+         if (metadata.reportType === 'monthly') {
+            doc.font('Helvetica').fontSize(10).fillColor('#555555')
+               .text(`Overall Completion Rate: ${metadata.stats.completionRate || 0}%`, 40, currentY);
+            currentY += 15;
+            if (metadata.analytics.bestDomain && metadata.analytics.bestDomain.domain) {
+                doc.text(`Top Domain: ${metadata.analytics.bestDomain.domain} (${metadata.analytics.bestDomain.rate.toFixed(2)}%)`, 40, currentY);
+                currentY += 15;
+            }
+         } else if (metadata.reportType === 'weekly' && metadata.analytics.topUsers) {
+            let userText = metadata.analytics.topUsers.map((u, i) => `#${i+1} ${u.user.name} (${u.completedCount})`).join('  |  ');
+            if(!userText) userText = "No completions this week.";
+            doc.font('Helvetica').fontSize(10).fillColor('#555555').text(`Top Performers: ${userText}`, 40, currentY);
+            currentY += 15;
+         }
+         currentY += 10;
+      }
       
-      // Date and Time
-      doc.fontSize(10).fillColor('gray').text(`Generated Date: ${timestamp}`, { align: 'right' });
-      doc.moveDown(2);
+      // --- TASKS TABLE ---
+      doc.font('Helvetica-Bold').fontSize(12).fillColor('#333333').text('TASK DETAILS', 40, currentY);
+      currentY += 15;
 
-      // Tasks List
-      doc.fillColor('black');
-      if (tasks && tasks.length > 0) {
-        doc.fontSize(14).text('List of Tasks:', { underline: true });
-        doc.moveDown(0.5);
-        
-        doc.fontSize(11);
-        tasks.forEach((task, index) => {
-           const taskName = task.title || task.name || 'Untitled Task';
-           const status = task.status ? task.status.toUpperCase() : 'N/A';
-           const bgUser = task.assignedTo ? (task.assignedTo.name || 'Unknown User') : 'Unassigned';
-           
-           doc.text(`${index + 1}. [${status}] ${taskName} (Assigned To: ${bgUser})`);
-           doc.moveDown(0.5);
-        });
+      let rowY = currentY;
+      const headers = ['Task Title', 'Assigned To', 'Domain', 'Due Date', 'Status'];
+      const colWidths = [170, 100, 70, 85, 75];
+      const tableWidth = colWidths.reduce((a, b) => a + b, 0); // 500
+
+      // Draw Table Header
+      doc.rect(40, rowY, doc.page.width - 80, 25).fillColor('#f4f4f4').fill();
+      doc.font('Helvetica-Bold').fontSize(9).fillColor('#333333');
+      let currentX = 45;
+      headers.forEach((h, i) => {
+        doc.text(h, currentX, rowY + 7, { width: colWidths[i] });
+        currentX += colWidths[i];
+      });
+      rowY += 25;
+
+      if (!tasks || tasks.length === 0) {
+          doc.rect(40, rowY, doc.page.width - 80, 60).fillColor('#fdfdfd').fill();
+          doc.font('Helvetica').fontSize(11).fillColor('#aaaaaa').text('No tasks found for this reporting period.', 40, rowY + 25, { align: 'center', width: doc.page.width - 80 });
+          rowY += 60;
       } else {
-        doc.fontSize(12).text('No tasks found for this reporting period.');
+          doc.font('Helvetica').fontSize(9);
+          tasks.forEach((task, index) => {
+              if (rowY > doc.page.height - 100) {
+                  doc.addPage();
+                  rowY = 40;
+                  // Redraw header
+                  doc.rect(40, rowY, doc.page.width - 80, 25).fillColor('#f4f4f4').fill();
+                  doc.font('Helvetica-Bold').fontSize(9).fillColor('#333333');
+                  let cX = 45;
+                  headers.forEach((h, i) => {
+                    doc.text(h, cX, rowY + 7, { width: colWidths[i] });
+                    cX += colWidths[i];
+                  });
+                  rowY += 25;
+              }
+
+              if (index % 2 === 0) {
+                  doc.rect(40, rowY, doc.page.width - 80, 30).fillColor('#fbfbfb').fill();
+              }
+
+              currentX = 45;
+              doc.fillColor('#333333');
+              doc.font('Helvetica').fontSize(9);
+
+              // Title
+              const titleText = task.title || task.name || 'Untitled';
+              doc.text(titleText, currentX, rowY + 10, { width: colWidths[0] - 10, height: 15, lineBreak: false, ellipsis: true });
+              currentX += colWidths[0];
+
+              // User
+              const assignedUser = task.assignedTo ? (task.assignedTo.name || 'Unassigned') : 'Unassigned';
+              doc.text(assignedUser, currentX, rowY + 10, { width: colWidths[1] - 5, height: 15, lineBreak: false, ellipsis: true });
+              currentX += colWidths[1];
+
+              // Domain
+              const domainStr = task.domain || '-';
+              doc.text(domainStr, currentX, rowY + 10, { width: colWidths[2] - 5, height: 15, lineBreak: false, ellipsis: true });
+              currentX += colWidths[2];
+
+              // Date
+              const dueDateStr = task.dueDate ? new Date(task.dueDate).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }) : '-';
+              doc.text(dueDateStr, currentX, rowY + 10, { width: colWidths[3] - 5 });
+              currentX += colWidths[3];
+
+              // Status
+              const statusStr = (task.status || 'pending').toUpperCase();
+              let badgeColor = '#ffc107'; 
+              if (statusStr === 'COMPLETED') badgeColor = '#28a745'; 
+              else if (statusStr === 'OVERDUE' || (task.status !== 'completed' && task.dueDate && new Date(task.dueDate) < new Date())) {
+                  badgeColor = '#dc3545';
+              }
+              
+              doc.roundedRect(currentX, rowY + 6, 65, 18, 3).fill(badgeColor);
+              doc.font('Helvetica-Bold').fontSize(8).fillColor('#ffffff').text(statusStr, currentX, rowY + 11, { width: 65, align: 'center' });
+              
+              rowY += 30;
+          });
+      }
+
+      doc.moveTo(40, rowY).lineTo(doc.page.width - 40, rowY).lineWidth(1).strokeColor('#e0e0e0').stroke();
+
+      // --- FOOTER AND PAGE NUMBERS ---
+      const pages = doc.bufferedPageRange();
+      for (let i = 0; i < pages.count; i++) {
+        doc.switchToPage(i);
+        doc.moveTo(40, doc.page.height - 50).lineTo(doc.page.width - 40, doc.page.height - 50).lineWidth(1).strokeColor('#e0e0e0').stroke();
+        
+        doc.font('Helvetica').fontSize(8).fillColor('#999999')
+           .text('Generated automatically by Digital Talent Management System', 40, doc.page.height - 40);
+        doc.text(`CONFIDENTIAL - ${timestamp}`, 40, doc.page.height - 30);
+
+        doc.text(`Page ${i + 1} of ${pages.count}`, 0, doc.page.height - 40, { align: 'right', right: 40 });
       }
 
       doc.end();
 
       stream.on('close', () => {
         console.log(`[${timestamp}] ✅ PDF successfully created at: ${filePath}`);
-        console.log("Generated filename:", fileName);
-        console.log("Full absolute path:", filePath);
-        console.log("fs.existsSync result:", fs.existsSync(filePath));
         resolve(filePath);
       });
       stream.on('error', (err) => {
@@ -128,7 +264,7 @@ const sendReportToAdmins = async (subject, htmlContent, attachmentPath, reportTy
   const timestamp = new Date().toLocaleString('en-IN');
   console.log(`[${timestamp}] 🚀 Initiating report delivery: ${subject}`);
 
-  // 1. SAVE TO DATABASE FIRST (Fallback behavior: ensures visibility in portal even if email fails)
+  // 1. SAVE TO DATABASE FIRST
   if (attachmentPath) {
     try {
       await Report.create({
@@ -247,7 +383,20 @@ const generateDailyReport = async () => {
     }).populate('assignedTo', 'name');
 
     const fileName = `daily-report-${new Date().toISOString().split('T')[0]}.pdf`;
-    const pdfPath = await generatePDF('Daily Admin Report', dailyTasks, fileName);
+    
+    // Set up metadata
+    const metadata = {
+        reportType: 'daily',
+        stats: {
+            total: tasksAssignedToday,
+            completed: tasksCompletedToday,
+            pending: pendingTasks,
+            overdue: overdueTasks,
+            completionRate: tasksAssignedToday ? ((tasksCompletedToday/tasksAssignedToday)*100).toFixed(1) : 0
+        }
+    };
+
+    const pdfPath = await generatePDF('Daily Admin Report', dailyTasks, fileName, metadata);
 
     if (pdfPath) {
       console.log(`[${new Date().toLocaleString('en-IN')}] ✅ Daily PDF generated successfully at: ${pdfPath}`);
@@ -271,6 +420,7 @@ const generateWeeklyReport = async () => {
     const endOfWeek = new Date(startOfWeek);
     endOfWeek.setDate(startOfWeek.getDate() + 6);
     endOfWeek.setHours(23, 59, 59, 999);
+    const now = new Date();
 
     const totalAssigned = await Task.countDocuments({
       createdAt: { $gte: startOfWeek, $lte: endOfWeek }
@@ -283,7 +433,12 @@ const generateWeeklyReport = async () => {
 
     const pendingCount = await Task.countDocuments({
       status: { $in: ['pending', 'submitted'] },
-      createdAt: { $gte: startOfWeek, $lte: endOfWeek }
+      createdAt: { $gte: startOfWeek, $lte: endOfWeek } // Tasks created this week that are pending
+    });
+    
+    const overdueCount = await Task.countDocuments({
+      status: { $in: ['pending', 'submitted'] },
+      dueDate: { $lt: now }
     });
 
     const topUsers = await Task.aggregate([
@@ -358,7 +513,22 @@ const generateWeeklyReport = async () => {
     }).populate('assignedTo', 'name');
 
     const fileName = `weekly-report-${new Date().toISOString().split('T')[0]}.pdf`;
-    const pdfPath = await generatePDF('Weekly Admin Report', weeklyTasks, fileName);
+
+    const metadata = {
+        reportType: 'weekly',
+        stats: {
+            total: totalAssigned,
+            completed: totalCompleted,
+            pending: pendingCount,
+            overdue: overdueCount,
+            completionRate: totalAssigned ? ((totalCompleted/totalAssigned)*100).toFixed(1) : 0
+        },
+        analytics: {
+            topUsers: topUsers
+        }
+    };
+
+    const pdfPath = await generatePDF('Weekly Admin Report', weeklyTasks, fileName, metadata);
 
     if (pdfPath) {
       console.log(`[${new Date().toLocaleString('en-IN')}] ✅ Weekly PDF generated successfully at: ${pdfPath}`);
@@ -383,6 +553,7 @@ const generateMonthlyReport = async () => {
     endOfMonth.setMonth(endOfMonth.getMonth() + 1);
     endOfMonth.setDate(0);
     endOfMonth.setHours(23, 59, 59, 999);
+    const now = new Date();
 
     const totalAssigned = await Task.countDocuments({
       createdAt: { $gte: startOfMonth, $lte: endOfMonth }
@@ -391,6 +562,16 @@ const generateMonthlyReport = async () => {
     const totalCompleted = await Task.countDocuments({
       status: 'completed',
       updatedAt: { $gte: startOfMonth, $lte: endOfMonth }
+    });
+
+    const pendingCount = await Task.countDocuments({
+      status: { $in: ['pending', 'submitted'] },
+      createdAt: { $gte: startOfMonth, $lte: endOfMonth } 
+    });
+    
+    const overdueCount = await Task.countDocuments({
+      status: { $in: ['pending', 'submitted'] },
+      dueDate: { $lt: now }
     });
 
     const completionRate = totalAssigned > 0 ? ((totalCompleted / totalAssigned) * 100).toFixed(2) : 0;
@@ -487,7 +668,22 @@ const generateMonthlyReport = async () => {
 
     const dateSuffix = new Date().toISOString().slice(0, 7); // YYYY-MM
     const fileName = `monthly-report-${dateSuffix}.pdf`;
-    const pdfPath = await generatePDF('Monthly Admin Report', monthlyTasks, fileName);
+
+    const metadata = {
+        reportType: 'monthly',
+        stats: {
+            total: totalAssigned,
+            completed: totalCompleted,
+            pending: pendingCount,
+            overdue: overdueCount,
+            completionRate: completionRate
+        },
+        analytics: {
+            bestDomain: bestDomain
+        }
+    };
+
+    const pdfPath = await generatePDF('Monthly Admin Report', monthlyTasks, fileName, metadata);
 
     if (pdfPath) {
       console.log(`[${new Date().toLocaleString('en-IN')}] ✅ Monthly PDF generated successfully at: ${pdfPath}`);
@@ -509,34 +705,28 @@ const scheduleReports = () => {
     timezone: "Asia/Kolkata"
   };
 
-  // Heartbeat Cron: Runs every minute to verify scheduler activity
-  // This helps confirm that the cron engine is running correctly
   cron.schedule('* * * * *', () => {
     const runTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
     console.log(`[${runTime}] 💓 CRON HEARTBEAT: Scheduler is active and monitoring tasks.`);
   }, cronOptions);
 
-  // Daily Report: 6:00 PM every day IST
   cron.schedule('0 18 * * *', () => {
     const runTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
     console.log(`[${runTime}] ⚡ CRON TRIGGER: Daily Admin Report execution started.`);
     generateDailyReport();
   }, cronOptions);
 
-  // Weekly Report: 6:00 PM every Sunday IST
   cron.schedule('0 18 * * 0', () => {
     const runTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
     console.log(`[${runTime}] ⚡ CRON TRIGGER: Weekly Admin Report execution started.`);
     generateWeeklyReport();
   }, cronOptions);
 
-  // Monthly Report: 6:00 PM every day between 28th and 31st (executes only on the last day)
   cron.schedule('0 18 28-31 * *', () => {
     const now = new Date();
     const tomorrow = new Date(now);
     tomorrow.setDate(now.getDate() + 1);
 
-    // If tomorrow is the 1st, then today is the last day of the month!
     if (tomorrow.getDate() === 1) {
       const runTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
       console.log(`[${runTime}] ⚡ CRON TRIGGER: Monthly Admin Report execution started (Month End detected).`);
@@ -544,7 +734,6 @@ const scheduleReports = () => {
     }
   }, cronOptions);
 
-  // Cleanup: Run daily at midnight IST
   cron.schedule('0 0 * * *', () => {
     const runTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
     console.log(`[${runTime}] ⚡ CRON TRIGGER: Automated cleanup started.`);
@@ -589,8 +778,33 @@ const regenerateReportPdf = async (report) => {
     ]
   }).populate('assignedTo', 'name');
 
+  // Let's pass basic metadata for regenerated reports
+  const now = new Date();
+  let pendingCount = 0;
+  let overdueCount = 0;
+  let completedCount = 0;
+  
+  tasks.forEach(t => {
+      if (t.status === 'completed') completedCount++;
+      else {
+          pendingCount++;
+          if (t.dueDate && new Date(t.dueDate) < now) overdueCount++;
+      }
+  });
+
+  const metadata = {
+      reportType: report.type,
+      stats: {
+          total: tasks.length,
+          completed: completedCount,
+          pending: pendingCount,
+          overdue: overdueCount,
+          completionRate: tasks.length ? ((completedCount/tasks.length)*100).toFixed(1) : 0
+      }
+  };
+
   const safeFilename = path.basename(report.filename || report.path);
-  const pdfPath = await generatePDF(title, tasks, safeFilename);
+  const pdfPath = await generatePDF(title, tasks, safeFilename, metadata);
   return pdfPath;
 };
 
@@ -600,5 +814,6 @@ module.exports = {
   generateWeeklyReport,
   generateMonthlyReport,
   regenerateReportPdf,
-  ensureDirectoryExists
+  ensureDirectoryExists,
+  generatePDF
 };
